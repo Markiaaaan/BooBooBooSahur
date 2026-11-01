@@ -35,7 +35,8 @@ public abstract class Interactable : MonoBehaviour
     /// <summary>Спроба взаємодії: перевіряє доступність і енергію, тоді викликає OnInteract.</summary>
     public bool TryInteract(PlayerInteractor who)
     {
-        if (!IsAvailable) return false;
+        // Повторна перевірка на момент натискання, до витрат і перезарядки.
+        if (who == null || !IsAvailable || !who.HasClearPathTo(this)) return false;
 
         // енергію прибрали з гри: приманки нічого не коштують (energyCost = 0)
         if (energyCost > 0f && who.Energy != null && !who.Energy.TrySpend(energyCost))

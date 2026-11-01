@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -224,6 +225,14 @@ public class IntroCutscene : MonoBehaviour
         if (finished) return;
         finished = true;
         if (markWin) GameProgress.JustWon = true;
+        StartCoroutine(LoadNextWhenReady());
+    }
+
+    IEnumerator LoadNextWhenReady()
+    {
+        // Вхідне затемнення ще може йти, коли гравець одразу натиснув Esc.
+        // LevelTransition.Go ігнорує запити під час Busy, тому дочікуємось його.
+        while (LevelTransition.Busy) yield return null;
         int next = nextSceneIndex >= 0 ? nextSceneIndex : SceneManager.GetActiveScene().buildIndex + 1;
         if (next >= SceneManager.sceneCountInBuildSettings) next = 0;
         if (!string.IsNullOrEmpty(nextName))

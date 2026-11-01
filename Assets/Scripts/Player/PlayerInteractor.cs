@@ -48,7 +48,7 @@ public class PlayerInteractor : MonoBehaviour
         for (int i = 0; i < hits.Length; i++)
         {
             var candidate = hits[i].GetComponentInParent<Interactable>();
-            if (candidate == null || !candidate.IsAvailable) continue;
+            if (candidate == null || !candidate.IsAvailable || !HasClearPathTo(candidate)) continue;
 
             Vector2 to = (Vector2)hits[i].transform.position - (Vector2)transform.position;
             float d = to.sqrMagnitude;
@@ -77,6 +77,14 @@ public class PlayerInteractor : MonoBehaviour
     }
 
     public void ReportNotEnoughEnergy(Interactable who) => OnNotEnoughEnergy?.Invoke(who);
+
+    /// <summary>Стіни, полиці й колони блокують взаємодію так само, як огляд.</summary>
+    public bool HasClearPathTo(Interactable target)
+    {
+        if (target == null) return false;
+        var grid = LevelGrid.Instance;
+        return grid == null || grid.HasLineOfSight(transform.position, target.transform.position);
+    }
 
     void OnDrawGizmosSelected()
     {
