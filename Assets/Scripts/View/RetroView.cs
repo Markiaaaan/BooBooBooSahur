@@ -93,7 +93,18 @@ public class RetroView : MonoBehaviour
     int[] vOrder = new int[128];
 
     // світло
-    const int MaxLights = 48;
+    const int MaxLights = 128;
+    // Оптимізація: для кожної клітинки карти - список ламп, які взагалі можуть її освітити.
+    // Тоді піксель перебирає 1-4 лампи замість усіх ламп рівня.
+    const int CellCap = 16;
+    int gridW, gridH;
+    int[] cellCount = new int[0];
+    int[] cellLights = new int[0];
+    // туман залежить лише від відстані: таблиця замість ділення на кожен піксель
+    const float FogLutScale = 16f;
+    readonly float[] fogLut = new float[1024];
+    // відстань до стелі й підлоги залежить лише від рядка екрана: рахуємо раз на кадр
+    float[] rowCeil = new float[0], rowFloor = new float[0];
     readonly float[] lx = new float[MaxLights], ly = new float[MaxLights], lz = new float[MaxLights];
     readonly float[] lr = new float[MaxLights], lg = new float[MaxLights], lb = new float[MaxLights];
     readonly float[] lrad2 = new float[MaxLights], linv = new float[MaxLights];
@@ -102,8 +113,17 @@ public class RetroView : MonoBehaviour
     readonly bool[] lspot = new bool[MaxLights];
     int lightCount;
     float ambR, ambG, ambB;
-    readonly List<Behaviour> lights2D = new List<Behaviour>();
-    PropertyInfo pColor, pIntensity, pRadius, pAngle, pType;
+    /// <summary>Лампа рівня. Незмінне (радіус, кут, висота) читаємо один раз, колір і яскравість - через делегати без рефлексії.</summary>
+    class LightRef
+    {
+        public Behaviour b;
+        public Transform t;
+        public Func<Color> color;
+        public Func<float> intensity;
+        public float radius, angle, height;
+        public bool global;
+    }
+    readonly List<LightRef> lights2D = new List<LightRef>();
 
     float fogR, fogG, fogB;
     readonly byte[] gammaLut = new byte[1024];
@@ -139,6 +159,11 @@ public class RetroView : MonoBehaviour
         fogR = fogColor.r; fogG = fogColor.g; fogB = fogColor.b;
         for (int i = 0; i < gammaLut.Length; i++)
             gammaLut[i] = (byte)(Mathf.Pow(i / (gammaLut.Length - 1f), gamma) * 255f);
+        for (int i = 0; i < fogLut.Length; i++)
+        {
+            float d = i / FogLutScale;
+            fogLut[i] = 1f / (1f + d * fogDensity + d * d * fogDensity * fogDensity * 0.6f);
+        }
         CreateScreen();
         CreateTextures();
     }
@@ -146,6 +171,13 @@ public class RetroView : MonoBehaviour
     void Start()
     {
         grid = LevelGrid.Instance;
+        if (grid != null)
+        {
+            gridW = grid.Width;
+            gridH = grid.Height;
+            cellCount = new int[gridW * gridH];
+            cellLights = new int[gridW * gridH * CellCap];
+        }
         CollectBoards();
         CollectLights();
     }
@@ -314,72 +346,126 @@ public class RetroView : MonoBehaviour
         }
         if (type == null) return;
 
-        pColor = type.GetProperty("color");
-        pIntensity = type.GetProperty("intensity");
-        pRadius = type.GetProperty("pointLightOuterRadius");
-        pAngle = type.GetProperty("pointLightOuterAngle");
-        pType = type.GetProperty("lightType");
+        PropertyInfo pColor = type.GetProperty("color"), pIntensity = type.GetProperty("intensity");
+        PropertyInfo pRadius = type.GetProperty("pointLightOuterRadius"), pAngle = type.GetProperty("pointLightOuterAngle");
+        PropertyInfo pType = type.GetProperty("lightType");
 
         foreach (var o in Resources.FindObjectsOfTypeAll(type))
         {
             var b = o as Behaviour;
-            if (b != null && b.gameObject.scene == gameObject.scene) lights2D.Add(b);
+            if (b == null || b.gameObject.scene != gameObject.scene) continue;
+            var l = new LightRef
+            {
+                b = b,
+                t = b.transform,
+                radius = (pRadius != null ? (float)pRadius.GetValue(b) : 2f) * 1.3f,
+                angle = pAngle != null ? (float)pAngle.GetValue(b) : 360f,
+                height = LightHeight(b.gameObject.name),
+                global = pType != null && Convert.ToInt32(pType.GetValue(b)) == 4,
+                color = Getter<Color>(pColor, b, Color.white),
+                intensity = Getter<float>(pIntensity, b, 1f),
+            };
+            lights2D.Add(l);
+        }
+    }
+
+    /// <summary>Швидкий делегат на властивість (без упаковки значень щокадру, як у PropertyInfo.GetValue).</summary>
+    static Func<T> Getter<T>(PropertyInfo p, object target, T fallback)
+    {
+        if (p == null) return () => fallback;
+        try
+        {
+            return (Func<T>)Delegate.CreateDelegate(typeof(Func<T>), target, p.GetGetMethod());
+        }
+        catch (Exception)
+        {
+            return () => (T)p.GetValue(target);
         }
     }
 
     // ================================================================ світло
 
-    void UpdateLights()
+    void UpdateLights(float posX, float posY)
     {
         lightCount = 0;
         ambR = ambG = ambB = 0f;
         bool hasGlobal = false;
+        float reach = maxDistance + 1f;
 
         foreach (var l in lights2D)
         {
-            if (l == null || !l.isActiveAndEnabled) continue;
+            if (l.b == null || !l.b.isActiveAndEnabled) continue;
 
-            Color c = pColor != null ? (Color)pColor.GetValue(l) : Color.white;
-            float inten = pIntensity != null ? (float)pIntensity.GetValue(l) : 1f;
-            int kind = pType != null ? Convert.ToInt32(pType.GetValue(l)) : 3;
-
-            if (kind == 4) // Global
+            if (l.global)
             {
+                Color gc = l.color();
+                float gi = l.intensity();
                 hasGlobal = true;
-                ambR += c.r * inten * ambientScale;
-                ambG += c.g * inten * ambientScale;
-                ambB += c.b * inten * ambientScale;
+                ambR += gc.r * gi * ambientScale;
+                ambG += gc.g * gi * ambientScale;
+                ambB += gc.b * gi * ambientScale;
                 continue;
             }
             if (lightCount >= MaxLights) continue;
 
-            float radius = (pRadius != null ? (float)pRadius.GetValue(l) : 2f) * 1.3f;
-            float angle = pAngle != null ? (float)pAngle.GetValue(l) : 360f;
-            Vector3 p = l.transform.position;
+            // лампи, що не дотягуються до видимої частини рівня, не рахуємо зовсім
+            Vector3 p = l.t.position;
+            float x = p.x + 0.5f, y = -p.y + 0.5f;
+            if (Mathf.Abs(x - posX) > reach + l.radius || Mathf.Abs(y - posY) > reach + l.radius) continue;
 
+            Color c = l.color();
+            float inten = l.intensity();
             int i = lightCount++;
-            lx[i] = p.x + 0.5f;
-            ly[i] = -p.y + 0.5f;
-            lz[i] = LightHeight(l.gameObject.name);
+            lx[i] = x;
+            ly[i] = y;
+            lz[i] = l.height;
             lr[i] = c.r * inten * lightScale;
             lg[i] = c.g * inten * lightScale;
             lb[i] = c.b * inten * lightScale;
-            lrad2[i] = radius * radius;
-            linv[i] = 1f / radius;
-            lspot[i] = angle < 359f;
+            lrad2[i] = l.radius * l.radius;
+            linv[i] = 1f / l.radius;
+            lspot[i] = l.angle < 359f;
             if (lspot[i])
             {
-                Vector2 up = l.transform.up;
+                Vector2 up = l.t.up;
                 ldx[i] = up.x;
                 ldy[i] = -up.y;
-                lcosO[i] = Mathf.Cos(angle * 0.5f * Mathf.Deg2Rad);
-                lcosI[i] = Mathf.Cos(angle * 0.3f * Mathf.Deg2Rad);
+                lcosO[i] = Mathf.Cos(l.angle * 0.5f * Mathf.Deg2Rad);
+                lcosI[i] = Mathf.Cos(l.angle * 0.3f * Mathf.Deg2Rad);
             }
         }
 
         if (!hasGlobal)
         {
             ambR = 0.1f; ambG = 0.11f; ambB = 0.15f;
+        }
+        BuildCellLights();
+    }
+
+    /// <summary>Розкладає лампи по клітинках, яких сягає їхнє коло.</summary>
+    void BuildCellLights()
+    {
+        if (cellCount.Length == 0) return;
+        Array.Clear(cellCount, 0, cellCount.Length);
+        for (int i = 0; i < lightCount; i++)
+        {
+            float rad = 1f / linv[i], rad2 = lrad2[i];
+            int x0 = Mathf.Max(0, Mathf.FloorToInt(lx[i] - rad)), x1 = Mathf.Min(gridW - 1, Mathf.FloorToInt(lx[i] + rad));
+            int y0 = Mathf.Max(0, Mathf.FloorToInt(ly[i] - rad)), y1 = Mathf.Min(gridH - 1, Mathf.FloorToInt(ly[i] + rad));
+            for (int cy = y0; cy <= y1; cy++)
+            {
+                float dy = ly[i] < cy ? cy - ly[i] : ly[i] > cy + 1 ? ly[i] - cy - 1 : 0f;
+                for (int cx = x0; cx <= x1; cx++)
+                {
+                    float dx = lx[i] < cx ? cx - lx[i] : lx[i] > cx + 1 ? lx[i] - cx - 1 : 0f;
+                    if (dx * dx + dy * dy >= rad2) continue;
+                    int c = cy * gridW + cx;
+                    int n = cellCount[c];
+                    if (n >= CellCap) continue;
+                    cellLights[c * CellCap + n] = i;
+                    cellCount[c] = n + 1;
+                }
+            }
         }
     }
 
@@ -396,23 +482,29 @@ public class RetroView : MonoBehaviour
     void Shade(float x, float y, float z, out float r, out float g, out float b)
     {
         r = ambR; g = ambG; b = ambB;
-        for (int i = 0; i < lightCount; i++)
+        if (x < 0f || y < 0f) return;
+        int cx = (int)x, cy = (int)y;
+        if (cx >= gridW || cy >= gridH) return;
+        int c = cy * gridW + cx;
+        int n = cellCount[c], baseIdx = c * CellCap;
+        for (int k = 0; k < n; k++)
         {
+            int i = cellLights[baseIdx + k];
             float dx = x - lx[i], dy = y - ly[i], dz = z - lz[i];
             float d2 = dx * dx + dy * dy + dz * dz;
             if (d2 >= lrad2[i]) continue;
-            float k = 1f - Mathf.Sqrt(d2) * linv[i];
-            k *= k;
+            float kk = 1f - Mathf.Sqrt(d2) * linv[i];
+            kk *= kk;
             if (lspot[i])
             {
                 float len = Mathf.Sqrt(dx * dx + dy * dy) + 0.0001f;
                 float cs = (dx * ldx[i] + dy * ldy[i]) / len;
                 if (cs <= lcosO[i]) continue;
-                if (cs < lcosI[i]) k *= (cs - lcosO[i]) / (lcosI[i] - lcosO[i]);
+                if (cs < lcosI[i]) kk *= (cs - lcosO[i]) / (lcosI[i] - lcosO[i]);
             }
-            r += k * lr[i];
-            g += k * lg[i];
-            b += k * lb[i];
+            r += kk * lr[i];
+            g += kk * lg[i];
+            b += kk * lb[i];
         }
     }
 
@@ -423,7 +515,6 @@ public class RetroView : MonoBehaviour
     void LateUpdate()
     {
         if (grid == null || player == null || fpm == null) return;
-        UpdateLights();
 
         // двері виходу анімуються (замок, відчинення) - беремо їхній поточний кадр
         var exit = LevelExit.Instance;
@@ -436,6 +527,7 @@ public class RetroView : MonoBehaviour
         int W = width, H = height;
         Vector2 wp = player.position;
         float posX = wp.x + 0.5f, posY = -wp.y + 0.5f;
+        UpdateLights(posX, posY);
         Vector2 f = fpm.Forward;
         float dirX = f.x, dirY = -f.y;
         float rightX = -dirY, rightY = dirX;
@@ -444,6 +536,14 @@ public class RetroView : MonoBehaviour
         float pv = W * 0.5f / planeLen;
         float hz = H * 0.5f + Mathf.Sin(Time.time * 2.2f) * 1.2f;
         float eye = eyeHeight;
+
+        if (rowCeil.Length != H) { rowCeil = new float[H]; rowFloor = new float[H]; }
+        for (int y = 0; y < H; y++)
+        {
+            float dc = hz - y - 0.5f, df = y + 0.5f - hz;
+            rowCeil[y] = dc > 0.01f ? (wallHeight - eye) * pv / dc : -1f;
+            rowFloor[y] = df > 0.01f ? eye * pv / df : -1f;
+        }
 
         for (int x = 0; x < W; x++)
         {
@@ -521,9 +621,8 @@ public class RetroView : MonoBehaviour
             // ---- стеля ----
             for (int y = 0; y < top; y++)
             {
-                float den = hz - y - 0.5f;
-                if (den <= 0.01f) continue;
-                float rd = (wallHeight - eye) * pv / den;
+                float rd = rowCeil[y];
+                if (rd < 0f) continue;
                 float fx = posX + rd * rdx, fy = posY + rd * rdy;
                 int ci = Mathf.FloorToInt(fx), cj = Mathf.FloorToInt(fy);
                 float u = fx - ci, vv = fy - cj;
@@ -555,9 +654,8 @@ public class RetroView : MonoBehaviour
             // ---- підлога ----
             for (int y = bot + 1; y < H; y++)
             {
-                float den = y + 0.5f - hz;
-                if (den <= 0.01f) continue;
-                float rd = eye * pv / den;
+                float rd = rowFloor[y];
+                if (rd < 0f) continue;
                 float fx = posX + rd * rdx, fy = posY + rd * rdy;
                 int ci = Mathf.FloorToInt(fx), cj = Mathf.FloorToInt(fy);
                 char fc = grid.Get(new Vector2Int(ci, cj));
@@ -613,7 +711,8 @@ public class RetroView : MonoBehaviour
 
     void Put(int x, int y, Color32 c, float lightR, float lightG, float lightB, float dist)
     {
-        float fog = 1f / (1f + dist * fogDensity + dist * dist * fogDensity * fogDensity * 0.6f);
+        int fi = (int)(dist * FogLutScale);
+        float fog = fi < fogLut.Length ? fogLut[fi] : fogLut[fogLut.Length - 1];
         float r = c.r * (1f / 255f) * lightR * fog + fogR * (1f - fog);
         float g = c.g * (1f / 255f) * lightG * fog + fogG * (1f - fog);
         float b = c.b * (1f / 255f) * lightB * fog + fogB * (1f - fog);

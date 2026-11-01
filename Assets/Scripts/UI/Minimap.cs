@@ -192,10 +192,16 @@ public class Minimap : MonoBehaviour
 
     // ================================================================ щокадру
 
+    float redrawTimer;
+
     void LateUpdate()
     {
         if (tex == null) return;
         time += Time.unscaledDeltaTime;
+        // мінікарту досить перемальовувати 20 разів на секунду, а не кожен кадр
+        redrawTimer -= Time.unscaledDeltaTime;
+        if (redrawTimer > 0f) return;
+        redrawTimer = 0.05f;
         System.Array.Copy(baseLayer, buf, buf.Length);
         bool blink = Mathf.Repeat(time, 0.8f) < 0.5f;
 

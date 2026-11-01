@@ -205,7 +205,16 @@ public class GameUI : MonoBehaviour
         UpdateObjective(dt);
         UpdatePrompt(dt, over);
 
-        if (GameManager.Instance != null) timerText.text = GameProgress.FormatTime(GameManager.Instance.LevelTime);
+        // таймер оновлюємо раз на секунду: новий рядок щокадру - зайве сміття й перебудова тексту
+        if (GameManager.Instance != null)
+        {
+            int sec = (int)GameManager.Instance.LevelTime;
+            if (sec != shownSecond)
+            {
+                shownSecond = sec;
+                timerText.text = GameProgress.FormatTime(sec);
+            }
+        }
 
         // назва рівня
         titleTimer -= dt;
@@ -292,6 +301,21 @@ public class GameUI : MonoBehaviour
         vignette.color = vignetteColor;
     }
 
+    int shownSecond = -1;
+
+    // рядок "X з N" складаємо лише коли число змінилося, а не щокадру (менше сміття в пам'яті)
+    string countedFormat, countedText;
+    int countedA = -1, countedB = -1;
+    string Counted(string format, int a, int b)
+    {
+        if (format != countedFormat || a != countedA || b != countedB)
+        {
+            countedFormat = format; countedA = a; countedB = b;
+            countedText = string.Format(format, a, b);
+        }
+        return countedText;
+    }
+
     void UpdateObjective(float dt)
     {
         var exit = LevelExit.Instance;
@@ -302,14 +326,14 @@ public class GameUI : MonoBehaviour
             {
                 var boss = BossJailer.Instance;
                 text = boss != null && boss.IsDefeated ? "Забери ключ Ключника"
-                    : boss != null && boss.HitsNeeded > 1 ? $"Скинь вантаж на Ключника: {boss.Hits} з {boss.HitsNeeded}"
+                    : boss != null && boss.HitsNeeded > 1 ? Counted("Скинь вантаж на Ключника: {0} з {1}", boss.Hits, boss.HitsNeeded)
                     : "Заманюй Ключника під вантаж";
                 icon = "icon_exit";
             }
             else
             {
                 text = exit.LeversNeeded > 1
-                    ? $"Потягни всі важелі: {exit.LeversPulled} з {exit.LeversNeeded} (E)"
+                    ? Counted("Потягни всі важелі: {0} з {1} (E)", exit.LeversPulled, exit.LeversNeeded)
                     : "Знайди важіль і потягни його (E)";
                 icon = "icon_lever";
             }

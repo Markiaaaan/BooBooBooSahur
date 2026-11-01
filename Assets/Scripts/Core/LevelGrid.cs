@@ -158,6 +158,9 @@ public class LevelGrid : MonoBehaviour
         System.Predicate<Vector2Int> allowed)
         => FindPathInternal(from, to, result, allowWater, true, allowed);
 
+    int[] searchParent;
+    readonly Queue<Vector2Int> searchQueue = new Queue<Vector2Int>();
+
     bool FindPathInternal(Vector2 from, Vector2 to, List<Vector2> result, bool allowWater, bool closestIfBlocked,
         System.Predicate<Vector2Int> allowed = null)
     {
@@ -173,12 +176,15 @@ public class LevelGrid : MonoBehaviour
         }
 
         int w = Width, h = Height;
-        var parent = new int[w * h];
+        // буфери пошуку живуть увесь рівень: вороги шукають шлях часто, і не треба щоразу смітити в пам'ять
+        if (searchParent == null || searchParent.Length != w * h) searchParent = new int[w * h];
+        var parent = searchParent;
         for (int i = 0; i < parent.Length; i++) parent[i] = -1;
         int startIdx = start.y * w + start.x;
         parent[startIdx] = startIdx;
 
-        var queue = new Queue<Vector2Int>();
+        var queue = searchQueue;
+        queue.Clear();
         queue.Enqueue(start);
         bool found = false;
         Vector2Int best = start;

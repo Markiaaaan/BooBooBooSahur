@@ -16,8 +16,14 @@ public class YSort : MonoBehaviour
         sr = GetComponent<SpriteRenderer>();
     }
 
+    float lastY = float.NaN;
+
     void LateUpdate()
     {
-        sr.sortingOrder = offset + Mathf.RoundToInt(-transform.position.y * 10f);
+        // більшість предметів стоїть на місці: порядок рахуємо лише коли об'єкт зрушив по вертикалі
+        float y = transform.position.y;
+        if (y == lastY) return;
+        lastY = y;
+        sr.sortingOrder = offset + Mathf.RoundToInt(-y * 10f);
     }
 }
