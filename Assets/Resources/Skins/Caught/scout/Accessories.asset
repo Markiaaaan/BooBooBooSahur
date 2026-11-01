@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 746d3e74bee246649fdc3f9a8dfe68f0, type: 3}
+  m_Name: Accessories
+  m_EditorClassIdentifier: Assembly-CSharp::CaughtAccessories
+  hat: {fileID: 21300000, guid: 622dd2d16a014104a1a3cf3cdb2c00fc, type: 3}
+  hatBakedIntoFrames: 0
+  glassesMask: {fileID: 21300000, guid: b3ca70fc0220425698a17c19ac767238, type: 3}
+  caught:
+  - {fileID: 21300000, guid: 7363fa13e5284e92806cd218feee361a, type: 3}
+  - {fileID: 21300000, guid: 5fa665996c06445e94600d6c296b90ae, type: 3}
+  - {fileID: 21300000, guid: 7eb0445f88ec4e5dba3a82694dbff452, type: 3}
+  - {fileID: 21300000, guid: 5f3824f047c94fc59f31ac87178cf9a4, type: 3}
+  - {fileID: 21300000, guid: 2f8767a599e04ed4a2e8328cfca35426, type: 3}
+  - {fileID: 21300000, guid: b3ca70fc0220425698a17c19ac767238, type: 3}

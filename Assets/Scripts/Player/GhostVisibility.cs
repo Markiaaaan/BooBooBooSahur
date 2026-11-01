@@ -60,6 +60,7 @@ public class GhostVisibility : MonoBehaviour
         float a = Mathf.Lerp(visualHiddenAlpha, exposedAlpha, Visibility);
         for (int i = 0; i < sprites.Length; i++)
         {
+            if (sprites[i] == null || !sprites[i].transform.IsChildOf(transform)) continue;
             var c = sprites[i].color;
             c.a = a;
             sprites[i].color = c;

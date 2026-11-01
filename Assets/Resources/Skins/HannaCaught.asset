@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ef1c07c2ca332184fb01c4f25f5f3e15, type: 3}
+  m_Name: HannaCaught
+  m_EditorClassIdentifier: Assembly-CSharp::HannaCaughtSprites
+  hat: {fileID: 21300000, guid: 406c60e11b644c71a5f2f76591e5bef4, type: 3}
+  caught:
+  - {fileID: 21300000, guid: b1477f80011f439896102e9e85b3411a, type: 3}
+  - {fileID: 21300000, guid: 8557de978c8a4af58b4393e8f2926bd3, type: 3}
+  - {fileID: 21300000, guid: 1c8f4db74f274d08a39fdf4bf72eb87d, type: 3}
+  - {fileID: 21300000, guid: 2542e142536f46fbba1aa396330abf61, type: 3}
+  - {fileID: 21300000, guid: e9a759702b964a818b728320e4aea3ab, type: 3}
+  - {fileID: 21300000, guid: ec5bd506902f425499a85de0d8f720d3, type: 3}
