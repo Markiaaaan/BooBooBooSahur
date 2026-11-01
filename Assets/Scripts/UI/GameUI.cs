@@ -21,7 +21,7 @@ public class GameUI : MonoBehaviour
     static readonly Color SpiritColor = new Color(0.82f, 0.6f, 1f);
 
     RectTransform canvasRt, objectivePanel, promptPanel, statusPanel, noticePanel;
-    Image vignette, portrait, eyeOpen, eyeClosed, objectiveIcon, noticeImage, promptImage;
+    Image vignette, portrait, portraitHat, portraitGlasses, eyeOpen, eyeClosed, objectiveIcon, noticeImage, promptImage;
     Text levelText, timerText, objectiveText, statusText, promptText, promptKey, noticeText, centerText,
         titleNumber, titleName, titleHint;
     Image centerBand;
@@ -118,6 +118,14 @@ public class GameUI : MonoBehaviour
             statusPanel = UIFactory.MakePanel(root, "Status", bottomLeft, new Vector2(20f, 20f), new Vector2(276f, 280f)).rectTransform;
             portrait = UIFactory.MakeImage(statusPanel, "Ghost", new Vector2(0.5f, 1f), new Vector2(0f, -18f), new Vector2(192f, 192f), Color.white);
             portrait.enabled = false;
+            portraitHat = UIFactory.MakeImage(portrait.transform, "Hat", new Vector2(0.5f, 0.5f),
+                Vector2.zero, new Vector2(192f, 192f), Color.white);
+            portraitHat.raycastTarget = false;
+            portraitHat.enabled = false;
+            portraitGlasses = UIFactory.MakeImage(portrait.transform, "Glasses", new Vector2(0.5f, 0.5f),
+                Vector2.zero, new Vector2(192f, 192f), Color.white);
+            portraitGlasses.raycastTarget = false;
+            portraitGlasses.enabled = false;
             eyeOpen = UIFactory.MakeIcon(statusPanel, "EyeOpen", "icon_eye_open", new Vector2(0f, 0f), new Vector2(14f, 14f), 48f);
             eyeClosed = UIFactory.MakeIcon(statusPanel, "EyeClosed", "icon_eye_closed", new Vector2(0f, 0f), new Vector2(14f, 14f), 48f);
             statusText = UIFactory.MakeText(statusPanel, "State", "", 32, new Vector2(0f, 0f), new Vector2(66f, 18f),
@@ -197,7 +205,16 @@ public class GameUI : MonoBehaviour
         UpdateObjective(dt);
         UpdatePrompt(dt, over);
 
-        if (GameManager.Instance != null) timerText.text = GameProgress.FormatTime(GameManager.Instance.LevelTime);
+        // таймер оновлюємо раз на секунду: новий рядок щокадру - зайве сміття й перебудова тексту
+        if (GameManager.Instance != null)
+        {
+            int sec = (int)GameManager.Instance.LevelTime;
+            if (sec != shownSecond)
+            {
+                shownSecond = sec;
+                timerText.text = GameProgress.FormatTime(sec);
+            }
+        }
 
         // назва рівня
         titleTimer -= dt;
@@ -244,7 +261,32 @@ public class GameUI : MonoBehaviour
             portrait.sprite = ghostSprite.sprite;
             portrait.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.3f, 1f, vis));
             portrait.rectTransform.anchoredPosition = new Vector2(0f, -18f + Mathf.Sin(time * 2f) * 5f);
+            var skin = ghostSprite.GetComponent<GhostSkin>();
+            UpdateAccessoryPortrait(portraitHat, skin != null ? skin.HatVisual : null,
+                skin != null && skin.HatIsDropped, skin != null ? skin.HatDropOrigin : Vector3.zero);
+            UpdateAccessoryPortrait(portraitGlasses, skin != null ? skin.GlassesVisual : null,
+                skin != null && skin.GlassesAreDropped, skin != null ? skin.GlassesDropOrigin : Vector3.zero);
         }
+    }
+
+    void UpdateAccessoryPortrait(Image image, SpriteRenderer accessory, bool dropped, Vector3 origin)
+    {
+        if (image == null) return;
+        image.enabled = accessory != null && accessory.enabled && accessory.sprite != null;
+        if (!image.enabled) return;
+        image.sprite = accessory.sprite;
+        image.type = Image.Type.Simple;
+        image.preserveAspect = true;
+        image.rectTransform.anchorMin = image.rectTransform.anchorMax = Vector2.one * 0.5f;
+        image.rectTransform.pivot = Vector2.one * 0.5f;
+        image.rectTransform.sizeDelta = portrait.rectTransform.sizeDelta;
+        float worldWidth = accessory.sprite.rect.width / accessory.sprite.pixelsPerUnit
+            * Mathf.Max(0.001f, Mathf.Abs(ghostSprite.transform.lossyScale.x));
+        Vector2 offset = dropped ? accessory.transform.position - origin : Vector3.zero;
+        image.rectTransform.anchoredPosition = offset * (192f / worldWidth);
+        image.rectTransform.localEulerAngles = new Vector3(0f, 0f, accessory.transform.eulerAngles.z);
+        image.rectTransform.localScale = new Vector3(accessory.flipX ? -1f : 1f, accessory.flipY ? -1f : 1f, 1f);
+        image.color = dropped ? Color.white : portrait.color;
     }
 
     void UpdateVignette(bool chased, bool seen, float dt, bool spiritNear)
@@ -259,6 +301,21 @@ public class GameUI : MonoBehaviour
         vignette.color = vignetteColor;
     }
 
+    int shownSecond = -1;
+
+    // рядок "X з N" складаємо лише коли число змінилося, а не щокадру (менше сміття в пам'яті)
+    string countedFormat, countedText;
+    int countedA = -1, countedB = -1;
+    string Counted(string format, int a, int b)
+    {
+        if (format != countedFormat || a != countedA || b != countedB)
+        {
+            countedFormat = format; countedA = a; countedB = b;
+            countedText = string.Format(format, a, b);
+        }
+        return countedText;
+    }
+
     void UpdateObjective(float dt)
     {
         var exit = LevelExit.Instance;
@@ -269,14 +326,14 @@ public class GameUI : MonoBehaviour
             {
                 var boss = BossJailer.Instance;
                 text = boss != null && boss.IsDefeated ? "Забери ключ Ключника"
-                    : boss != null && boss.HitsNeeded > 1 ? $"Скинь вантаж на Ключника: {boss.Hits} з {boss.HitsNeeded}"
+                    : boss != null && boss.HitsNeeded > 1 ? Counted("Скинь вантаж на Ключника: {0} з {1}", boss.Hits, boss.HitsNeeded)
                     : "Заманюй Ключника під вантаж";
                 icon = "icon_exit";
             }
             else
             {
                 text = exit.LeversNeeded > 1
-                    ? $"Потягни всі важелі: {exit.LeversPulled} з {exit.LeversNeeded} (E)"
+                    ? Counted("Потягни всі важелі: {0} з {1} (E)", exit.LeversPulled, exit.LeversNeeded)
                     : "Знайди важіль і потягни його (E)";
                 icon = "icon_lever";
             }

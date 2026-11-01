@@ -12,6 +12,7 @@ public class TorchFlicker : MonoBehaviour
 
     Component light2D;
     PropertyInfo intensityProp;
+    System.Action<float> setIntensity;   // делегат замість PropertyInfo.SetValue: без сміття в пам'яті щокадру
     float baseIntensity;
     float seed;
 
@@ -35,12 +36,22 @@ public class TorchFlicker : MonoBehaviour
         }
         baseIntensity = (float)intensityProp.GetValue(light2D);
         seed = Random.value * 100f;
+        try
+        {
+            setIntensity = (System.Action<float>)System.Delegate.CreateDelegate(
+                typeof(System.Action<float>), light2D, intensityProp.GetSetMethod());
+        }
+        catch (System.Exception)
+        {
+            var prop = intensityProp; var target = light2D;
+            setIntensity = v => prop.SetValue(target, v);
+        }
     }
 
     void Update()
     {
-        if (intensityProp == null) return;
+        if (setIntensity == null) return;
         float n = Mathf.PerlinNoise(seed, Time.time * speed) - 0.5f;
-        intensityProp.SetValue(light2D, baseIntensity * (1f + n * 2f * amount));
+        setIntensity(baseIntensity * (1f + n * 2f * amount));
     }
 }
